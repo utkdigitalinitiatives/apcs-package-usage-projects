@@ -1,0 +1,95 @@
+---
+title: "Bookplate Costs per Year"
+author: "Alexander Harriman"
+date: "2024-11-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(gt)
+library(readr)
+```
+
+
+# Load the Data
+
+
+```{r}
+bookplate <- read_csv('Bookplate Cost Tracker.csv') |>
+  filter(FY != 2022) |>
+  mutate(FY = FY - 1)
+```
+
+
+
+# Find Book Count and Cost Per Year
+
+
+```{r}
+annual <- bookplate |>
+  group_by(FY) |>
+  summarise(books = sum(NumBooks),
+            cost = substr(paste('$', formatC(sum(`Transaction Expenditure Amount`), big.mark = ',', format = 'f')), 1, 10))
+
+totalRow <- data.frame(FY = '2022-24',
+                       books = sum(bookplate$NumBooks),
+                       cost = substr(paste('$', formatC(sum(bookplate$`Transaction Expenditure Amount`), big.mark = ',', format = 'f')), 1, 11))
+
+allData <- rbind(annual, totalRow)
+
+allData
+```
+
+
+
+```{r}
+write.csv(allData, 'Raw Bookplate Expense Data.csv', row.names = FALSE)
+```
+
+
+
+# Create a GT Table
+
+
+```{r}
+costGT <- allData |>
+  gt() |>
+  tab_header(title = md('**Annual Costs of the Faculty Bookplate Reception**')) |>
+  cols_align(align = 'center', columns = c('FY', 'books', 'cost')) |>
+  opt_stylize(style = 5, color = 'green') |>
+  cols_label(FY = 'Year', books = '# Books Purchased', cost = '$ Spent') |>
+  cols_width(everything() ~ px(150)) |>
+  opt_table_font(
+    font = 'rounded-sans',
+    size = 14
+  ) |>
+  tab_style(
+    style = list(
+      cell_text(weight = 'bold')
+    ),
+    locations = cells_body(
+      rows = FY == '2022-24'
+    )
+  ) |>
+  tab_style(
+    style = cell_borders(
+      sides = c('top'),
+      color = '#4b4b4b',
+      weight = px(2),
+      style = 'solid'
+    ),
+    locations = cells_body(
+      rows = FY == '2022-24'
+    )
+  )
+
+costGT
+```
+

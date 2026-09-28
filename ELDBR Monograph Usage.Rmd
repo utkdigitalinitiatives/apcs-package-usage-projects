@@ -1,0 +1,131 @@
+---
+title: "ELDBR Monograph Usage"
+author: "Alexander Harriman"
+date: "2025-01-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(gt)
+library(readr)
+library(readxl)
+library(splitstackshape)
+library(ragtop)
+library(lubridate)
+```
+
+
+
+# Load Title and Loan Information
+
+
+```{r}
+eldbrLoans <- read_excel('ELDBR Monograph Full Loan List.xlsx')
+eldbrTitles <- read_excel('ELDBR Monograph Circulation Report.xlsx')
+
+eldbr <- inner_join(eldbrLoans, eldbrTitles, by = c('Title', 'Barcode'))
+
+eldbr
+```
+
+
+# Clean up the Incorrect Usage Data from Alma
+
+
+```{r}
+usageCount <- eldbr |>
+  group_by(Barcode) |>
+  summarise(Loan_Count = sum(ifelse(`Loan Date` > `Item Creation Date`, 1, 0)),
+            Loan_First_Six = sum(ifelse(ymd(`Loan Date`) < ymd(`Item Creation Date`) %m+% months(6), 1, 0)),
+            Loan_First_Year = sum(ifelse(ymd(`Loan Date`) < ymd(`Item Creation Date`) %m+% months(12), 1, 0)),
+            Cost = mean(`List Price`),
+            Months_Purchase = mean(`Months Since Purchase`)) |>
+  mutate(Use_Year = (Loan_Count * 12) / Months_Purchase) |>
+  mutate(Cost_Use = Cost / Use_Year)
+
+usageCount
+```
+
+
+
+
+# Join Back with the ELDBR Titles
+
+
+```{r}
+titlesWithUsage <- left_join(eldbrTitles, usageCount, by = 'Barcode')
+
+titlesWithUsage
+```
+
+
+# Pick a Barcode for the Two Barcode Titles
+
+
+```{r}
+cleanTitles1 <- titlesWithUsage |>
+  group_by(Title) |>
+  summarise(`MMS Id` = `MMS Id`[1],
+            ISBN = `ISBN (Normalized)`[1],
+            Barcode = Barcode[1],
+            `Item Creation Date` = `Item Creation Date`[1],
+            `Last Loan Date` = `Last Loan Date (calendar)`[1],
+            Price = `List Price`[1],
+            `Months Since Purchase` = `Months Since Purchase`[1],
+            allLoans = mean(Loan_Count, na.rm = TRUE),
+            firstSixLoans = mean(Loan_First_Six, na.rm = TRUE),
+            firstYearLoans = mean(Loan_First_Year, na.rm = TRUE),
+            Use_Year = mean(Use_Year, na.rm = TRUE),
+            Cost_Use = mean(Cost_Use, na.rm = TRUE))
+
+
+cleanTitles1
+```
+
+
+
+```{r}
+head(cleanTitles1)
+```
+
+
+
+# Fill in No Use Titles with a 0
+
+
+
+```{r}
+cleanTitles2 <- cleanTitles1 |>
+  mutate(Cost_Use = ifelse(is.na(allLoans) == TRUE, NA_real_, round(Cost_Use, 2)),
+         allLoans = ifelse(is.na(allLoans) == TRUE, 0, allLoans),
+         firstSixLoans = ifelse(is.na(firstSixLoans) == TRUE, 0, firstSixLoans),
+         firstYearLoans = ifelse(is.na(firstYearLoans) == TRUE, 0, firstYearLoans),
+         Use_Year = ifelse(is.na(Use_Year) == TRUE, 0, Use_Year)) |>
+  mutate(costUseBucket = case_when(
+    allLoans == 0 ~ 'No Loans',
+    Cost_Use < 20 ~ 'Under $20',
+    Cost_Use >= 20 ~ 'Over $20',
+    .default = NA
+  ))
+
+cleanTitles2
+```
+
+
+
+# Export for PowerBI Reporting
+
+
+```{r}
+write.csv(cleanTitles2, 'ELDBR Monograph Loan Data.csv', row.names = FALSE)
+```
+
