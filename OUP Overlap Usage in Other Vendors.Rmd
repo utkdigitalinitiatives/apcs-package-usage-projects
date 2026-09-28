@@ -1,0 +1,546 @@
+---
+title: "OUP Overlap Usage in Other Vendors"
+author: "Alexander Harriman"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(plyr)
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(plotly)
+library(gt)
+```
+
+
+# Load Data
+
+
+```{r}
+overlap <- read_excel('OUP Titles with Complete Overlap with Other Vendors.xlsx')
+
+overlap
+```
+
+
+# Figure out which Interfaces Most Overlap Occurs In
+
+
+```{r}
+fullOverlapList <- vector()
+
+for(i in 1:dim(overlap)[1]){
+  allVendors <- strsplit(overlap$`Interface - Target Set`[i], split = '\"}\r\n\r\n{\"', fixed = TRUE)
+  number <- length(allVendors[[1]])
+  
+  allVendors[[1]][1] <- substr(allVendors[[1]][1], 3, nchar(allVendors[[1]][1]))
+  allVendors[[1]][number] <- substr(allVendors[[1]][number], 1, nchar(allVendors[[1]][number]) - 2)
+  fullOverlapList <- append(fullOverlapList, allVendors[[1]])
+}
+
+cleanOverlapList <- gsub("[[:punct:]]", "", fullOverlapList)
+cleanOverlapList <- gsub("\r", "", cleanOverlapList)
+cleanOverlapList <- gsub("\n", "", cleanOverlapList)
+```
+
+# Get Counts by Vendor
+
+```{r}
+vendorFrame <- data.frame(Vendor = cleanOverlapList)
+
+organization <- vendorFrame |>
+  group_by(Vendor) |>
+  summarise(Instances = n()) |>
+  arrange(desc(Instances))
+
+organization
+```
+
+
+
+# Import the Partial Overlap Set
+
+```{r}
+partialOverlap <- read_excel('OUP Titles with Partial Overlap with Other Vendors.xlsx')
+
+partialOverlap
+```
+
+
+
+# Clean Up the Partial Overlap Data:
+
+
+## The Target Set
+
+```{r}
+partOverlapList <- vector()
+
+for(i in 1:dim(partialOverlap)[1]){
+  allVendors <- strsplit(partialOverlap$`Interface - Target Set`[i], split = '\n\n', fixed = TRUE)
+  number <- length(allVendors[[1]])
+  
+  allVendors[[1]][1] <- substr(allVendors[[1]][1], 3, nchar(allVendors[[1]][1]))
+  allVendors[[1]][number] <- substr(allVendors[[1]][number], 1, nchar(allVendors[[1]][number]) - 2)
+  partOverlapList <- append(partOverlapList, allVendors[[1]])
+}
+
+cleanOverlapList2 <- gsub("[[:punct:]]", "", partOverlapList)
+cleanOverlapList2 <- gsub("\r", "", cleanOverlapList2)
+cleanOverlapList2 <- gsub("\n", "", cleanOverlapList2)
+
+
+cleanOverlapList2
+```
+
+
+## The Target Coverage
+
+
+
+```{r}
+partOverlapCoverage <- vector()
+
+for(i in 1:dim(partialOverlap)[1]){
+  allVendors <- strsplit(partialOverlap$`Coverage - Target Set`[i], split = '\n\n', fixed = TRUE)
+  number <- length(allVendors[[1]])
+  
+  allVendors[[1]][1] <- substr(allVendors[[1]][1], 3, nchar(allVendors[[1]][1]))
+  allVendors[[1]][number] <- substr(allVendors[[1]][number], 1, nchar(allVendors[[1]][number]) - 2)
+  partOverlapCoverage <- append(partOverlapCoverage, allVendors[[1]])
+}
+
+cleanOverlapCoverage <- gsub("[[:punct:]]", "", partOverlapCoverage)
+cleanOverlapCoverage <- gsub("\r", "", cleanOverlapCoverage)
+cleanOverlapCoverage <- gsub("\n", "", cleanOverlapCoverage)
+```
+
+
+## The Target Embargo Periods
+
+```{r}
+partOverlapEmbargo <- vector()
+
+for(i in 1:dim(partialOverlap)[1]){
+  allVendors <- strsplit(partialOverlap$`Embargo - Target Set`[i], split = '\n\n', fixed = TRUE)
+  number <- length(allVendors[[1]])
+  
+  allVendors[[1]][1] <- substr(allVendors[[1]][1], 3, nchar(allVendors[[1]][1]))
+  allVendors[[1]][number] <- substr(allVendors[[1]][number], 1, nchar(allVendors[[1]][number]) - 2)
+  partOverlapEmbargo <- append(partOverlapEmbargo, allVendors[[1]])
+}
+
+cleanOverlapEmbargo <- gsub("[[:punct:]]", "", partOverlapEmbargo)
+cleanOverlapEmbargo <- gsub("\r", "", cleanOverlapEmbargo)
+cleanOverlapEmbargo <- gsub("\n", "", cleanOverlapEmbargo)
+```
+
+
+
+## The Target Portfolio IDs
+
+
+```{r}
+partOverlapID <- vector()
+
+for(i in 1:dim(partialOverlap)[1]){
+  allVendors <- strsplit(partialOverlap$`Portfolio ID - Target Set`[i], split = '\n\n', fixed = TRUE)
+  number <- length(allVendors[[1]])
+  
+  allVendors[[1]][1] <- substr(allVendors[[1]][1], 3, nchar(allVendors[[1]][1]))
+  allVendors[[1]][number] <- substr(allVendors[[1]][number], 1, nchar(allVendors[[1]][number]) - 2)
+  partOverlapID <- append(partOverlapID, allVendors[[1]])
+}
+
+cleanOverlapID <- gsub("[[:punct:]]", "", partOverlapID)
+cleanOverlapID <- gsub("\r", "", cleanOverlapID)
+cleanOverlapID <- gsub("\n", "", cleanOverlapID)
+```
+
+
+
+## Target Publication Name List
+
+
+```{r}
+partOverlapName <- vector()
+
+for(i in 1:dim(partialOverlap)[1]){
+  allVendors <- strsplit(partialOverlap$`Portfolio ID - Target Set`[i], split = '\n\n', fixed = TRUE)
+  number <- length(allVendors[[1]])
+  for(j in 1:number){
+      partOverlapName <- append(partOverlapName, partialOverlap$Title[i])
+  }
+
+}
+
+cleanOverlapName <- gsub("[[:punct:]]", "", partOverlapName)
+cleanOverlapName <- gsub("\r", "", cleanOverlapName)
+cleanOverlapName <- gsub("\n", "", cleanOverlapName)
+```
+
+
+
+## Combine Columns
+
+
+```{r}
+partials <- data.frame(Name = cleanOverlapName, 
+                       Portfolio_ID = cleanOverlapID, 
+                       Platform = cleanOverlapList2, 
+                       Coverage = cleanOverlapCoverage, 
+                       Embargo = cleanOverlapEmbargo)
+
+partials
+```
+
+
+## Filter Down to the Active Subscriptions
+
+```{r}
+currentPartials <- partials |>
+  filter(Embargo == '') |>
+  filter(str_detect(Coverage, 'until') == FALSE) |>
+  filter(Coverage != '')
+
+currentPartials
+```
+
+
+
+## Find Where the Partials are Located
+
+
+```{r}
+partialLocations <- currentPartials |>
+  group_by(Platform) |>
+  summarise(Occurrences = n()) |>
+  arrange(desc(Occurrences))
+
+partialLocations
+```
+
+
+# Import Usage Data Folder
+
+
+```{r}
+externalUsage <- data.frame()
+
+otherVendorCounter <- list.files(pattern = '.tsv', full.names = TRUE)
+
+for(i in 1:length(otherVendorCounter)){
+  vendor <- read_tsv(otherVendorCounter[i], skip = 13) 
+  
+  vendor <- vendor[,1:12] |>
+    mutate(Vendor = case_when(
+      i == 1 ~ 'BioOne',
+      i == 2 ~ 'EBSCOhost',
+      i == 3 ~ 'Gale',
+      i == 4 ~ 'JSTOR',
+      i == 5 ~ 'OUP',
+      i == 6 ~ 'Project Muse',
+      i == 7 ~ 'Wiley',
+      .default = NA
+    ))
+  
+  externalUsage <- rbind(externalUsage, vendor)
+}
+
+dim(externalUsage)
+```
+
+
+
+```{r}
+oupUsage <- externalUsage |>
+  filter(Vendor == 'OUP') |>
+  mutate(Print_ISSN = gsub('-', '', Print_ISSN),
+         Online_ISSN = gsub('-', '', Online_ISSN))
+
+otherUsage <- externalUsage |>
+  filter(Vendor != 'OUP') |>
+  mutate(Print_ISSN = gsub('-', '', Print_ISSN),
+         Online_ISSN = gsub('-', '', Online_ISSN))
+```
+
+
+
+# Separate the ISSN Data from Alma
+
+
+```{r}
+fullOverlapList2 <- vector()
+partialOverlapList2 <- vector()
+
+for(i in 1:dim(overlap)[1]){
+  allVendors <- strsplit(overlap$`ISSN(Matching Identifier)`[i], split = '\r\n\r\n', fixed = TRUE)
+  fullOverlapList2 <- append(fullOverlapList2, allVendors)
+}
+
+for(i in 1:dim(partialOverlap)[1]){
+  allVendors <- strsplit(partialOverlap$`ISSN(Matching Identifier)`[i], split = '\n\n', fixed = TRUE)
+  partialOverlapList2 <- append(partialOverlapList2, allVendors)
+}
+
+issnList <- unlist(c(fullOverlapList2,partialOverlapList2), use.names = FALSE)
+
+fullOverlapList2 <- unlist(fullOverlapList2)
+partialOverlapList2 <- unlist(partialOverlapList2)
+```
+
+
+# Filter the Usage Down to Only Overlapped Titles
+
+
+```{r}
+filterOUP <- oupUsage |>
+  filter(Print_ISSN %in% issnList | Online_ISSN %in% issnList) |>
+  filter(Metric_Type == 'Unique_Item_Requests')
+
+filterOthers <- otherUsage |>
+  filter(Print_ISSN %in% issnList | Online_ISSN %in% issnList) |>
+  filter(Metric_Type == 'Unique_Item_Requests')
+```
+
+
+
+
+# Fill in ISSN Gaps for Summarization
+
+```{r}
+joined <- rbind(filterOUP, filterOthers) |>
+  mutate(Online_ISSN = case_when(
+          Title == 'MELUS' ~ '19463170',
+          Title == 'BioScience'~ '15253244',
+          Title == 'The English Historical Review' ~ '14774534',
+          Title == 'OAH Magazine of History' ~ '19382340',
+          Title == 'Biology of Reproduction' ~ '15297268',
+          Title == 'Journal of Church and State' ~ '20404867',
+          Title == 'Political Science Quarterly' ~ '1538165X',
+          Title == 'Social Work' ~ '15456846',
+          Title == 'Social Work Research' ~ '15456838',
+          Title == 'Essays in Criticism' ~ '14716852',
+          Title == 'Journal of Economic Entomology' ~ '1938291X',
+          Title == 'Notes and Queries' ~ '14716941',
+          Title == 'The British Journal of Aesthetics' ~ '14682842',
+          .default = Online_ISSN)
+  )
+```
+
+
+
+
+
+# Pivot the Usage Data Wider
+
+
+```{r}
+comparison <- joined |>
+  mutate(oupUsage = ifelse(Vendor == 'OUP', Reporting_Period_Total, 0),
+         bioOneUsage = ifelse(Vendor == 'BioOne', Reporting_Period_Total, 0),
+         EBSCOUsage = ifelse(Vendor == 'EBSCOhost', Reporting_Period_Total, 0),
+         galeUsage = ifelse(Vendor == 'Gale', Reporting_Period_Total, 0),
+         JSTORUsage = ifelse(Vendor == 'JSTOR', Reporting_Period_Total, 0),
+         museUsage = ifelse(Vendor == 'Project Muse', Reporting_Period_Total, 0),
+         wileyUsage = ifelse(Vendor == 'Wiley', Reporting_Period_Total, 0))
+
+comparison
+```
+
+
+
+# Usage Summary
+
+
+```{r}
+usageBreakdown <- comparison |>
+  group_by(Online_ISSN) |>
+  summarize(numVendors = n(),
+            allUsage = sum(Reporting_Period_Total),
+            maxUsage = max(Reporting_Period_Total),
+            oupUsage = max(oupUsage),
+            bioOneUsage = max(bioOneUsage),
+            EBSCOUsage = max(EBSCOUsage),
+            galeUsage = max(galeUsage),
+            JSTORUsage = max(JSTORUsage),
+            museUsage = max(museUsage),
+            wileyUsage = max(wileyUsage)) |>
+  mutate(nonOUPUsage = allUsage - oupUsage,
+         topVendor = case_when(
+          maxUsage == oupUsage ~ 'OUP',
+          maxUsage == bioOneUsage ~ 'BioOne',
+          maxUsage == EBSCOUsage ~ 'EBSCO',
+          maxUsage == galeUsage ~ 'Gale',
+          maxUsage == JSTORUsage ~ 'JSTOR',
+          maxUsage == museUsage ~ 'Project Muse',
+          maxUsage == wileyUsage ~ 'Wiley',
+          .default = 'None'
+        )) |>
+  mutate(oupRate = round(100.0*(oupUsage / allUsage),1),
+         nonOUPRate = round(100.0*(nonOUPUsage / allUsage),1)) |>
+  filter(numVendors > 1) |>
+  mutate(overlapType = case_when(
+    Online_ISSN %in% partialOverlapList2 & !Online_ISSN %in% fullOverlapList2 ~ 'Partial',
+    Online_ISSN %in% fullOverlapList2 ~ 'Full',
+    .default = 'Unknown'
+  ))
+
+
+usageBreakdown
+```
+
+
+```{r}
+issnList2 <- unique(usageBreakdown$Online_ISSN)
+titles <- c()
+
+for(i in 1:length(issnList2)){
+  titles <- append(titles, comparison[comparison$Online_ISSN == issnList2[i],]$Title[1])
+}
+
+fullBreakdown <- cbind(usageBreakdown, titles)
+
+fullBreakdown
+```
+
+
+
+```{r}
+test <- fullBreakdown |>
+  group_by(Online_ISSN) |>
+  summarise(n = n()) |>
+  arrange(desc(n))
+
+test
+```
+
+
+# Create Dataset: Names of Journals Where OUP is not Most Used
+
+
+```{r}
+notOUP <- fullBreakdown |>
+  filter(topVendor != 'OUP') |>
+  select(titles, Online_ISSN, overlapType, allUsage, topVendor, maxUsage, oupUsage)
+
+colnames(notOUP) <- c('Title', 'Online ISSN', 'Full or Partial Overlap', 'All Usage', 'Top Vendor', 'Top Vendor Usage', 'OUP Usage')
+
+notOUP
+```
+
+
+```{r}
+write.csv(notOUP, 'OUP Overlap Used More by Other Vendor.csv')
+```
+
+
+# Make Visuals: Pie Chart of Top Vendor
+
+
+```{r}
+topVendorBreakdown <- fullBreakdown |>
+  group_by(overlapType, topVendor) |>
+  summarize(n = n()) |>
+  arrange(desc(n)) |>
+  mutate(topVendor = factor(topVendor, levels = c('OUP', 'JSTOR', 'Wiley', 'EBSCO')))
+
+topVendorBreakdown
+```
+
+
+
+```{r}
+ggplot(topVendorBreakdown |>
+         filter(overlapType == 'Full')
+       , aes(x = '', y = n, fill = topVendor)) +
+  geom_col() +
+  coord_polar(theta = "y") +
+  geom_label(aes(label = n),
+             color = 'white',
+             position = position_stack(vjust = 0.4),
+             show.legend = FALSE) +
+  scale_fill_manual(values = c('#117733', '#44aa99', '#882255', '#ddcc77')) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill = "#ffffff"),
+        plot.background = element_rect(fill = "#ffffff"),
+        legend.background = element_rect(fill = "#ffffff")) +
+  ggtitle('Most-Used Vendors of Fully Overlapped Titles') +
+  guides(fill = guide_legend(title = 'Top Usage Vendor'))
+```
+
+
+
+# Make Visuals: OUP Usage Plotly
+
+
+```{r, warning = FALSE}
+palette <- c('#4b4b4b', '#ff8200')
+
+fullBreakdown <- fullBreakdown |>
+  mutate(oupTop = ifelse(topVendor == 'OUP', 'Yes', 'No'))
+
+plotlyTrend <- plot_ly(data = fullBreakdown, x = ~oupRate, y = ~allUsage, color = ~oupTop, colors = palette,
+                       marker = list(size = 10),
+                       text = ~paste('<b>Title:', titles, '<br><b>Most Used Vendor:', topVendor, '<br><b>Overlap Type:', overlapType)) |>
+  layout(title = '<b> % of Total Usage on OUP for Overlap Titles',
+         yaxis = list(zeroline = FALSE, title = '<b>Total Usage since Jan-2022'),
+         xaxis = list(zeroline = FALSE, title = '<b>% Usage from OUP'),
+         legend = list(title = list(text = '<b> Is OUP <br> Top Vendor?')),
+         autosize = FALSE,
+         width = 800,
+         height = 500)
+
+
+# 1100 and 850 are better for saving to HTML
+## 800 and 500 are better for viewing in RStudio
+
+plotlyTrend
+
+#htmltools::save_html(plotlyTrend, 'Total Usage and OUP Percentage.html')
+```
+
+
+
+
+# Make Visuals: GT Table, Which Vendors Overlap with OUP the Most?
+
+
+```{r}
+cleanOrg <- organization |>
+  filter(Instances >= 10)
+
+cleanOrg
+```
+
+
+
+```{r}
+overlapTable <- cleanOrg |>
+  gt() |>
+  tab_header(title = md('**Vendors with Greatest Overlap with OUP**')) |>
+  cols_align(align = 'center', columns = c('Vendor', 'Instances')) |>
+  opt_stylize(style = 5, color = 'blue') |>
+  cols_label(Instances = '# Overlaps') |>
+  cols_width(Vendor ~ px(250), everything() ~ px(125)) |>
+  opt_table_font(
+    font = 'rounded-sans',
+    size = 14
+  )
+
+overlapTable
+```
+

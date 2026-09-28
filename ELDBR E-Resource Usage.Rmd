@@ -1,0 +1,1062 @@
+---
+title: "Usage of ELDBR E-Resources"
+author: "Alexander Harriman"
+date: "2025-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(gt)
+library(readr)
+library(readxl)
+library(splitstackshape)
+library(ragtop)
+library(lubridate)
+```
+
+
+
+# Load Data
+
+
+```{r}
+eldbr <- read_excel('ELDBR List of Replaced Electronic Portfolios.xlsx')
+
+eldbr
+```
+
+
+
+# Split up the ISBNs Into Individual Columns
+
+
+```{r}
+splitISBNs <- cSplit(eldbr, 'ISBN (Normalized)', ';')
+
+splitISBNs
+```
+
+
+
+# Check the Vendors for Usage Gathering
+
+```{r}
+vendors <- eldbr |>
+  group_by(`Vendor Name`) |>
+  summarise(Titles = n(),
+            Usage_Start_Date = min(`Portfolio Creation Date`)) |>
+  arrange(`Vendor Name`)
+
+vendors
+```
+
+
+
+Usage will need to be loaded from Cambridge, EBSCO, JSTOR, John's Hopkins Press, OUP, and ProQuest.
+
+Use the minimum date listed for the vendor above to determine earliest usage gathering point.
+
+
+
+# Load in Usage Data by File Type - ProQuest
+
+
+```{r}
+prList <- list.files(pattern = 'ProQuest-PR', full.names = TRUE)
+
+for(i in 1:length(prList)){
+  vendor <- str_split_1(prList[i], "-")[1]
+  reportType <- str_split_1(prList[i], "-")[2]
+  year <- substr(str_split_1(prList[i], "-")[3], 4, 7)
+  datafile <- read_excel(prList[i], skip = 13) |>
+    group_by(Platform, Metric_Type) |>
+    summarise(Total_Usage = sum(Reporting_Period_Total)) |>
+    ungroup() |>
+    filter(Metric_Type == 'Unique_Item_Requests')
+  assign(paste0("eldbr", vendor, reportType, year), datafile)
+}
+
+
+drList <- list.files(pattern = 'ProQuest-DR', full.names = TRUE)
+
+for(i in 1:length(drList)){
+  vendor <- str_split_1(drList[i], "-")[1]
+  reportType <- str_split_1(drList[i], "-")[2]
+  year <- substr(str_split_1(drList[i], "-")[3], 4, 7)
+  datafile <- read_excel(drList[i], skip = 13) |>
+    group_by(Database, Publisher, Publisher_ID, Platform, Proprietary_ID, Metric_Type) |>
+    summarise(Total_Usage = sum(Reporting_Period_Total)) |>
+    ungroup() |>
+    filter(Metric_Type == 'Unique_Item_Requests')
+  assign(paste0("eldbr", vendor, reportType, year), datafile)
+}
+
+
+trList <- list.files(pattern = 'ProQuest-TR', full.names = TRUE)
+
+for(i in 1:length(trList)){
+  vendor <- str_split_1(trList[i], "-")[1]
+  reportType <- str_split_1(trList[i], "-")[2]
+  year <- substr(str_split_1(trList[i], "-")[3], 4, 7)
+  datafile <- read_excel(trList[i], skip = 13) |>
+    group_by(Title, Publisher, Publisher_ID, Platform, DOI, Proprietary_ID, ISBN, Print_ISSN, Online_ISSN, URI, Metric_Type) |>
+    summarise(Total_Usage = sum(Reporting_Period_Total)) |>
+    ungroup() |>
+    filter(Metric_Type == 'Unique_Item_Requests')    
+  assign(paste0("eldbr", vendor, reportType, year), datafile)
+}
+```
+
+
+
+
+# Join the Files Together
+
+```{r}
+# DR
+proQuest_dr_mid <- full_join(`eldbr./ProQuestDR2022`, `eldbr./ProQuestDR2023`, by = c('Database', 'Publisher', 'Publisher_ID', 'Platform', 'Proprietary_ID', 'Metric_Type'))
+proQuestDR <- full_join(proQuest_dr_mid, `eldbr./ProQuestDR2024`, by = c('Database', 'Publisher', 'Publisher_ID', 'Platform', 'Proprietary_ID', 'Metric_Type')) |>
+  select(Database, Publisher, Publisher_ID, Platform, Proprietary_ID, Metric_Type, Total_Usage)
+
+
+# PR
+proQuest_pr_mid <- full_join(`eldbr./ProQuestPR2022`, `eldbr./ProQuestPR2023`, by = c('Platform', 'Metric_Type'))
+proQuestPR <- full_join(proQuest_pr_mid, `eldbr./ProQuestPR2024`, by = c('Platform', 'Metric_Type')) |>
+  select(Platform, Metric_Type, Total_Usage)
+  
+  
+# TR
+proQuest_tr_mid <- full_join(`eldbr./ProQuestTR2022`, `eldbr./ProQuestTR2023`, by = c('Title', 'Publisher', 'Publisher_ID', 'Platform', 'DOI', 'Proprietary_ID', 'ISBN', 'Print_ISSN', 'Online_ISSN', 'URI', 'Metric_Type'))
+proQuestTR <- full_join(proQuest_tr_mid, `eldbr./ProQuestTR2024`, by = c('Title', 'Publisher', 'Publisher_ID', 'Platform', 'DOI', 'Proprietary_ID', 'ISBN', 'Print_ISSN', 'Online_ISSN', 'URI', 'Metric_Type'))  |>
+  select(Title, Publisher, Publisher_ID, Platform, DOI, Proprietary_ID, ISBN, Print_ISSN, Online_ISSN, URI, Metric_Type, Total_Usage)
+```
+
+
+
+
+# Load in Usage Data by File Type - Other Vendors
+
+
+```{r}
+prList <- grep(list.files(pattern = 'PR', full.names = TRUE), pattern = 'ProQuest-', invert = TRUE, value = TRUE)
+
+for(i in 1:length(prList)){
+  vendor <- str_split_1(prList[i], "-")[1]
+  reportType <- str_split_1(prList[i], "-")[2]
+  datafile <- read_tsv(prList, skip = 13, show_col_types = FALSE) |>
+    filter(Metric_Type == 'Unique_Item_Requests') |>
+    mutate(Total_Usage = Reporting_Period_Total) |>
+    select(Platform, Metric_Type, Total_Usage)
+  assign(paste0("eldbr", vendor, reportType), datafile)
+}
+
+
+drList <- grep(list.files(pattern = 'DR', full.names = TRUE), pattern = 'ProQuest-', invert = TRUE, value = TRUE)
+
+for(i in 1:length(drList)){
+  vendor <- str_split_1(drList[i], "-")[1]
+  reportType <- str_split_1(drList[i], "-")[2]
+  datafile <- read_tsv(drList, skip = 13, show_col_types = FALSE) |>
+    filter(Metric_Type == 'Unique_Item_Requests') |>
+    mutate(Total_Usage = Reporting_Period_Total) |>
+    select(Database, Publisher, Publisher_ID, Platform, Proprietary_ID, Metric_Type, Total_Usage)
+  assign(paste0("eldbr", vendor, reportType), datafile)
+}
+
+
+trList <- grep(list.files(pattern = 'TR', full.names = TRUE), pattern = 'ProQuest-', invert = TRUE, value = TRUE)
+
+for(i in 1:length(trList)){
+  vendor <- str_split_1(trList[i], "-")[1]
+  reportType <- str_split_1(trList[i], "-")[2]
+  datafile <- read_tsv(trList, skip = 13, show_col_types = FALSE) |>
+    filter(Metric_Type == 'Unique_Item_Requests') |>
+    mutate(Total_Usage = Reporting_Period_Total) |>
+    select(Title, Publisher, Publisher_ID, Platform, DOI, Proprietary_ID, ISBN, Print_ISSN, Online_ISSN, URI, Metric_Type, Total_Usage)
+  assign(paste0("eldbr", vendor, reportType), datafile)
+}
+```
+
+
+
+
+
+# Combine Like File Types
+
+
+```{r}
+PR <- rbind(`eldbr./CambridgePR`, `eldbr./EBSCOPR`, `eldbr./JSTORPR`, `eldbr./OUPPR`, `eldbr./ProQuestEBooksPR`, proQuestPR)
+
+DR <- rbind(`eldbr./EBSCODR`, `eldbr./JSTORDR`, `eldbr./OUPDR`, proQuestDR)
+
+TR <- rbind(`eldbr./CambridgeTR`, `eldbr./EBSCOTR`, `eldbr./JSTORTR`, `eldbr./OUPTR`, `eldbr./ProQuestEBooksTR`, proQuestTR)
+```
+
+
+
+
+```{r}
+TR
+splitISBNs
+```
+
+
+
+
+# Normalize the ISBNs
+
+
+
+
+```{r}
+cleanTR <- TR |>
+  mutate(ISBN = gsub("-", "", ISBN)) |>
+  distinct(.keep_all = TRUE)
+
+cleanTR
+```
+
+
+
+# Attempt the Title Cleanup From the ILL Report
+
+
+
+```{r}
+for(i in 1:dim(cleanTR)[1]){
+  cleanTR$cleanTitle[i] <- tolower(gsub("[[:punct:]]", "", str_split(cleanTR$Title[i], '\\*')[[1]][1]))
+  cleanTR$keyWord1[i] <- ifelse(is.na(str_split(cleanTR$cleanTitle[i], ' ')[[1]][1]) == TRUE, '',
+                                      str_split(cleanTR$cleanTitle[i], ' ')[[1]][1])
+  cleanTR$keyWord2[i] <- ifelse(is.na(str_split(cleanTR$cleanTitle[i], ' ')[[1]][2]) == TRUE, '',
+                                      str_split(cleanTR$cleanTitle[i], ' ')[[1]][2])
+  cleanTR$keyWord3[i] <- ifelse(is.na(str_split(cleanTR$cleanTitle[i], ' ')[[1]][3]) == TRUE, '',
+                                      str_split(cleanTR$cleanTitle[i], ' ')[[1]][3])
+  cleanTR$keyWord4[i] <- ifelse(is.na(str_split(cleanTR$cleanTitle[i], ' ')[[1]][4]) == TRUE, '',
+                                      str_split(cleanTR$cleanTitle[i], ' ')[[1]][4])
+}
+```
+
+
+
+
+# Do the same Cleanup for the Alma Report
+
+
+```{r}
+for(i in 1:dim(splitISBNs)[1]){
+  splitISBNs$cleanTitle[i] <- tolower(gsub("[[:punct:]]", "", str_split(splitISBNs$Title[i], '\\*')[[1]][1]))
+  splitISBNs$keyWord1[i] <- ifelse(is.na(str_split(splitISBNs$cleanTitle[i], ' ')[[1]][1]) == TRUE, '',
+                                      str_split(splitISBNs$cleanTitle[i], ' ')[[1]][1])
+  splitISBNs$keyWord2[i] <- ifelse(is.na(str_split(splitISBNs$cleanTitle[i], ' ')[[1]][2]) == TRUE, '',
+                                      str_split(splitISBNs$cleanTitle[i], ' ')[[1]][2])
+  splitISBNs$keyWord3[i] <- ifelse(is.na(str_split(splitISBNs$cleanTitle[i], ' ')[[1]][3]) == TRUE, '',
+                                      str_split(splitISBNs$cleanTitle[i], ' ')[[1]][3])
+  splitISBNs$keyWord4[i] <- ifelse(is.na(str_split(splitISBNs$cleanTitle[i], ' ')[[1]][4]) == TRUE, '',
+                                      str_split(splitISBNs$cleanTitle[i], ' ')[[1]][4])
+}
+```
+
+
+
+```{r}
+for(i in 1:dim(eldbr)[1]){
+  eldbr$cleanTitle[i] <- tolower(gsub("[[:punct:]]", "", str_split(eldbr$Title[i], '\\*')[[1]][1]))
+  eldbr$keyWord1[i] <- ifelse(is.na(str_split(eldbr$cleanTitle[i], ' ')[[1]][1]) == TRUE, '',
+                                      str_split(eldbr$cleanTitle[i], ' ')[[1]][1])
+  eldbr$keyWord2[i] <- ifelse(is.na(str_split(eldbr$cleanTitle[i], ' ')[[1]][2]) == TRUE, '',
+                                      str_split(eldbr$cleanTitle[i], ' ')[[1]][2])
+  eldbr$keyWord3[i] <- ifelse(is.na(str_split(eldbr$cleanTitle[i], ' ')[[1]][3]) == TRUE, '',
+                                      str_split(eldbr$cleanTitle[i], ' ')[[1]][3])
+  eldbr$keyWord4[i] <- ifelse(is.na(str_split(eldbr$cleanTitle[i], ' ')[[1]][4]) == TRUE, '',
+                                      str_split(eldbr$cleanTitle[i], ' ')[[1]][4])
+}
+```
+
+
+
+# Combine the Words and Attempt to Join
+
+
+```{r}
+titleSplitAlma <- eldbr |>
+  mutate(mainTitle = paste0(keyWord1, keyWord2, keyWord3, keyWord4))
+
+
+titleSplitUsage <- cleanTR |>
+  mutate(mainTitle = paste0(keyWord1, keyWord2, keyWord3, keyWord4))
+
+
+
+firstStep <- inner_join(titleSplitAlma, titleSplitUsage, by = 'mainTitle') 
+
+firstStep <- firstStep |>
+  mutate(Title.y = ifelse(Title.y == 'Statistical mechanics', 'Statistical Mechanics', Title.y))
+
+
+firstStep
+```
+
+
+
+
+# Clean Up the First Step
+
+
+```{r}
+usageA <- firstStep |>
+  group_by(Title.y, `ISBN (Normalized)`, `Portfolio Creation Date`, `MMS Id`, Cost) |>
+  summarise(Reporting_Period_Total = sum(Total_Usage)) |>
+  ungroup() |>
+  mutate(Title = Title.y) |>
+  select(Title, `ISBN (Normalized)`, `MMS Id`, `Portfolio Creation Date`, Reporting_Period_Total, Cost)
+
+usageA
+```
+
+
+
+
+# Check the Final Titles Currently Without Usage
+
+
+```{r}
+noUse <- left_join(titleSplitAlma, titleSplitUsage, by = 'mainTitle') |>
+  filter(is.na(Total_Usage) == TRUE)
+
+
+noUse
+```
+
+
+# ISBN Join Check
+
+```{r}
+noUseSplit <- cSplit(noUse, 'ISBN (Normalized)', ';') |>
+  mutate(`ISBN (Normalized)_01` = as.character(`ISBN (Normalized)_01`),
+         `ISBN (Normalized)_03` = as.character(`ISBN (Normalized)_03`),
+         `ISBN (Normalized)_05` = as.character(`ISBN (Normalized)_05`),
+         `ISBN (Normalized)_06` = as.character(`ISBN (Normalized)_06`),
+         `ISBN (Normalized)_07` = as.character(`ISBN (Normalized)_07`),
+         `ISBN (Normalized)_08` = as.character(`ISBN (Normalized)_08`),
+         `ISBN (Normalized)_09` = as.character(`ISBN (Normalized)_09`),
+         `ISBN (Normalized)_10` = as.character(`ISBN (Normalized)_10`),
+         `ISBN (Normalized)_11` = as.character(`ISBN (Normalized)_11`),
+         `ISBN (Normalized)_12` = as.character(`ISBN (Normalized)_12`))
+
+noUseSplit
+```
+
+
+
+
+
+# Check Usage Reports
+
+
+```{r}
+secondStep <- cleanTR |>
+  filter(is.na(ISBN) == FALSE) |>
+  filter(ISBN %in% noUseSplit$`ISBN (Normalized)_01` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_02` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_03` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_04` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_05` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_06` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_07` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_08` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_09` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_10` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_11` |
+           ISBN %in% noUseSplit$`ISBN (Normalized)_12`) |>
+  mutate(mainTitle = paste0(keyWord1, keyWord2, keyWord3, keyWord4))
+
+secondStep$Cost <- c(61.88, 171.83, 149, 29.39, 39.69, 36.75, 47.04)
+
+secondStep$`Portfolio Creation Date` <- c(as.POSIXct('2021-08-10'), as.POSIXct('2024-01-17'), as.POSIXct('2023-10-12'), as.POSIXct('2023-10-12'), as.POSIXct('2023-02-03'), as.POSIXct('2023-01-26'), as.POSIXct('2023-04-18'))
+
+secondStep$`MMS Id` <- c('9926062147002311', '9926478723502311', '9926415751002311', '9926415519502311', '9926311783302311', '9926310422702311', '9926342384202311')
+
+secondStep
+```
+
+
+
+
+# Clean Up the Second Step
+
+
+```{r}
+usageB <- secondStep |>
+  group_by(Title, `ISBN`, `MMS Id`, `Portfolio Creation Date`, Cost) |>
+  summarise(Reporting_Period_Total = sum(Total_Usage)) |>
+  ungroup() |>
+  select(Title, `ISBN`, `MMS Id`, `Portfolio Creation Date`, Reporting_Period_Total, Cost)
+
+colnames(usageB) <- c('Title', 'ISBN (Normalized)', 'MMS Id', 'Portfolio Creation Date', 'Reporting_Period_Total', 'Cost')
+
+usageB
+```
+
+
+# Get the Rest of the No Usage Titles
+
+
+```{r}
+noUseSplit2 <- noUseSplit |>
+  filter(!keyWord1.x %in% secondStep$keyWord1) |>
+  filter(mainTitle != 'themoralityofdrone')
+
+noUseSplit2
+```
+
+
+
+
+```{r}
+noUseRestart <- eldbr |>
+  filter(Title %in% noUseSplit2$Title.x)
+
+
+noUseRestart
+```
+
+
+
+# Remove All Articles From Titles and Re-Start the Title Joining
+
+
+
+```{r}
+cleanTR2 <- cleanTR
+
+
+for(i in 1:dim(cleanTR2)[1]){
+  firstTitleClean <- tolower(gsub("[[:punct:]]", "", str_split(cleanTR2$Title[i], '\\*')[[1]][1]))
+  for(word in c('and', 'a', 'the', 'The', 'A', 'And', 'to', 'of')){
+      firstTitleClean <- str_remove_all(firstTitleClean, paste0("\\b", word, "\\b"))
+  }
+
+
+  splitTitle <- str_split(firstTitleClean, ' ')[[1]]
+
+  
+  removeList <- c()
+  for(j in 1:length(splitTitle)){
+    if(is.blank(splitTitle[j]) == TRUE){
+      removeList <- append(removeList, j)
+    }
+  }
+  
+  
+  if(is.null(removeList) == TRUE){
+    finalSplit <- splitTitle
+  }
+  else{
+    finalSplit <- splitTitle[-removeList]
+  }
+
+  
+  cleanTR2$keyWord1[i] <- finalSplit[1]
+  cleanTR2$keyWord2[i] <- ifelse(is.na(finalSplit[2]) == TRUE, '', finalSplit[2])
+  cleanTR2$keyWord3[i] <- ifelse(is.na(finalSplit[3]) == TRUE, '', finalSplit[3])
+  cleanTR2$keyWord4[i] <- ifelse(is.na(finalSplit[4]) == TRUE, '', finalSplit[4])
+  
+  cleanTR2$cleanTitle[i] <- paste0(finalSplit[1], 
+                                       ifelse(is.na(finalSplit[2]) == TRUE, '', finalSplit[2]), 
+                                       ifelse(is.na(finalSplit[3]) == TRUE, '', finalSplit[3]), 
+                                       ifelse(is.na(finalSplit[4]) == TRUE, '', finalSplit[4]))
+}
+
+cleanTR2
+```
+
+
+```{r}
+for(i in 1:dim(noUseRestart)[1]){
+  firstTitleClean <- tolower(gsub("[[:punct:]]", "", str_split(noUseRestart$Title[i], '\\*')[[1]][1]))
+  for(word in c('and', 'a', 'the', 'The', 'A', 'And', 'to', 'of')){
+      firstTitleClean <- str_remove_all(firstTitleClean, paste0("\\b", word, "\\b"))
+  }
+
+
+  splitTitle <- str_split(firstTitleClean, ' ')[[1]]
+
+  
+  removeList <- c()
+  for(j in 1:length(splitTitle)){
+    if(is.blank(splitTitle[j]) == TRUE){
+      removeList <- append(removeList, j)
+    }
+  }
+  
+  
+  if(is.null(removeList) == TRUE){
+    finalSplit <- splitTitle
+  }
+  else{
+    finalSplit <- splitTitle[-removeList]
+  }
+
+  
+  noUseRestart$keyWord1[i] <- finalSplit[1]
+  noUseRestart$keyWord2[i] <- ifelse(is.na(finalSplit[2]) == TRUE, '', finalSplit[2])
+  noUseRestart$keyWord3[i] <- ifelse(is.na(finalSplit[3]) == TRUE, '', finalSplit[3])
+  noUseRestart$keyWord4[i] <- ifelse(is.na(finalSplit[4]) == TRUE, '', finalSplit[4])
+  
+  noUseRestart$cleanTitle[i] <- paste0(finalSplit[1], 
+                                       ifelse(is.na(finalSplit[2]) == TRUE, '', finalSplit[2]), 
+                                       ifelse(is.na(finalSplit[3]) == TRUE, '', finalSplit[3]), 
+                                       ifelse(is.na(finalSplit[4]) == TRUE, '', finalSplit[4]))
+}
+
+noUseRestart
+```
+
+
+
+# Join the Two Files
+
+
+
+```{r}
+thirdStep <- inner_join(noUseRestart, cleanTR2, by = 'cleanTitle')
+
+thirdStep
+```
+
+
+
+
+
+
+
+# Manually Find the Final Usage Information
+
+
+
+
+```{r}
+noUseRestart
+```
+
+
+
+```{r}
+almostFinalStep <- data.frame(
+  Title = c('Forecasting, Structural Time Series Models and the Kalman Filter',
+            'A Shameful Life', 
+            'Introduction to Quantum Mechanics', 
+            'Teaching Social Studies That Matters', 
+            'Politics and Government in the Middle East and North Africa',
+            'The Oromo Movement and Imperial Politics',
+            "Thomas Piketty's 'Capital in the Twenty First Century': An Introduction",
+            'The Poetics of Ruins in Renaissance Literature',
+            'Rationality and the Reflective Mind',
+            'Boredom, Architecture and Spatial Experience',
+            'Butterfly Boy',
+            'Dietland',
+            'Gender Epistemologies in Africa',
+            'Imagined Communities',
+            'Introduction to Soft Matter',
+            'Sonidos en Contexto',
+            'State Lotteries and Legalized Gambling: Painless Revenue or Painful Mirage',
+            'Stochastic Models in Biology',
+            'The Berlin Wall Crisis',
+            'The Dresden Firebombing'),
+  `ISBN (Normalized)` = noUseRestart$`ISBN (Normalized)`,
+  `MMS Id` = noUseRestart$`MMS Id`,
+  `Portfolio Creation Date` = noUseRestart$`Portfolio Creation Date`,
+  Reporting_Period_Total = c(0,
+                             0, 
+                             0, 
+                             0,
+                             1,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0,
+                             17,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0),
+  Cost = noUseRestart$Cost
+)
+
+colnames(almostFinalStep) <- c('Title', 'ISBN (Normalized)', 'MMS Id', 'Portfolio Creation Date', 'Reporting_Period_Total', 'Cost')
+
+almostFinalStep
+```
+
+
+# Combine All Usage
+
+```{r}
+allUsage <- rbind(usageA, usageB, almostFinalStep)
+
+allUsage
+```
+
+
+
+
+# Get the Current No Usage Items And Double-Check Vendors in Alma
+
+
+```{r}
+noUsage <- allUsage |>
+  filter(Reporting_Period_Total < 1)
+
+noUsage
+```
+
+
+Vendors That Need to Be Accounted For:
+
+
+* Kalman Confirmed in Cambridge, no usage.
+* A Shameful Life Confirmed in EBSCO, no usage.
+* Introduction to Quantum Mechanics is on **Knovel**, but Knovel has no title-based usage. With nothing on EBSCO, this is listed as a no usage.
+* Teaching Social Studies that Matters Confirmed in EBSCO, no usage.
+* The Oromo Movement Confirmed in EBSCO, no usage.
+* Thomas Piketty Confirmed in EBSCO, no usage.
+* Poetics of Ruins is on **Project MUSE**. However, it has no usage.
+* Rationality and the Reflective Mind Confirmed in OUP, no usage.
+* Boredom Confirmed in ProQuest, no usage.
+* Butterfly Boy Confirmed in ProQuest, no usage.
+* Dietland Confirmed in ProQuest, no usage.
+* Gender Epistemologies Confirmed in ProQuest, no usage.
+* Soft Matter Confirmed in ProQuest, no usage.
+* Sonidos Confirmed in ProQuest, no usage.
+* State Lotteries Confirmed in ProQuest, no usage.
+* Stochastic Models Confirmed in ProQuest, no usage.
+* Berlin Wall Crisis Confirmed in ProQuest, no usage.
+* Dresden Confirmed in ProQuest, no usage.
+
+
+
+
+
+
+# Add the Vendor to the Final Outcome
+
+
+```{r}
+usageVendor <- left_join(allUsage, eldbr, by = 'ISBN (Normalized)') |>
+  select(Title.x, `ISBN (Normalized)`, `MMS Id.x`, `Portfolio Creation Date.x`, `Vendor Name`, Reporting_Period_Total, Cost.x)
+
+colnames(usageVendor) <- c('Title', 'ISBN', 'MMS ID', 'Portfolio Creation Date', 'Vendor Name', 'Total_Usage', 'Cost')
+
+
+# Fill in Gaps
+
+filledGaps <- usageVendor |>
+  mutate(ISBN = case_when(
+    Title == 'Circuit-Bending' ~ '0471752959; 9780471752950; 9780764588877; 0764588877',
+    Title == 'Colonial Botany' ~ '9780812293470; 0812293479; 9780812220094; 0812220099',
+    Title == 'Ghost Wars: The Secret History of the CIA, Afghanistan, and Bin Laden, From the Soviet Invasion to September 10, 2001 (Pulitzer Prize Winner)' ~ '1429513659; 9781429513654; 1429521007; 9781429521000; 1101221437; 9781101221433; 0141935790; 9780141935799; 9780143034667; 0143034669; 9780141020808; 0141020806',
+    Title == 'Legitimacy Gap: Secularism, Religion, and Culture in Comparative Constitutional Law' ~ '0192528270; 9780192528278; 0198803826; 9780198803829',
+    Title == 'Morality of Drone Warfare and the Politics of Regulation.' ~ '1137533803; 9781137533807; 9781137533791; 113753379X',
+    Title == 'Undesirables' ~ '1503633705; 9781503633704; 9781503632912; 1503632911',
+    Title == 'Young Adult Literature, Fourth Edition' ~ '9780838937471; 0838937470; 9780838937488; 0838937489; 9780838947470; 0838947476',
+    .default = ISBN
+  ),
+  `Vendor Name` = case_when(
+    Title == 'Circuit-Bending' ~ 'ProQuest LLC',
+    Title == 'Colonial Botany' ~ 'ProQuest LLC',
+    Title == 'Ghost Wars: The Secret History of the CIA, Afghanistan, and Bin Laden, From the Soviet Invasion to September 10, 2001 (Pulitzer Prize Winner)' ~ 'EBSCO INFORMATION SERVICES',
+    Title == 'Legitimacy Gap: Secularism, Religion, and Culture in Comparative Constitutional Law' ~ 'EBSCO INFORMATION SERVICES',
+    Title == 'Morality of Drone Warfare and the Politics of Regulation.' ~ 'EBSCO INFORMATION SERVICES',
+    Title == 'Undesirables' ~ 'ProQuest LLC',
+    Title == 'Young Adult Literature, Fourth Edition' ~ 'ProQuest LLC',
+    .default = `Vendor Name`    
+  )
+  )
+
+
+filledGaps
+```
+
+
+
+
+
+
+# Focus on Usage Only Since Re-Purchase
+
+
+# Get All 0 Usage Titles
+
+
+```{r}
+lackUse <- filledGaps |>
+  filter(Total_Usage == 0)
+
+
+lackUse
+```
+
+
+# Load in All Non-ProQuest Titles Again
+
+```{r}
+trList <- grep(list.files(pattern = 'TR', full.names = TRUE), pattern = 'ProQuest-', invert = TRUE, value = TRUE)
+
+for(i in 1:length(trList)){
+  vendor <- str_split_1(trList[i], "-")[1]
+  reportType <- str_split_1(trList[i], "-")[2]
+  datafile <- read_tsv(trList, skip = 13, show_col_types = FALSE) |>
+    filter(Metric_Type == 'Unique_Item_Requests') |>
+    mutate(Total_Usage = Reporting_Period_Total)
+  assign(paste0("eldbr", vendor, reportType, 'and_months'), datafile)
+}
+```
+
+
+
+
+
+# Load in Usage Data by File Type - ProQuest
+
+
+```{r}
+trList <- list.files(pattern = 'ProQuest-TR', full.names = TRUE)
+
+for(i in 1:length(trList)){
+  vendor <- str_split_1(trList[i], "-")[1]
+  reportType <- str_split_1(trList[i], "-")[2]
+  year <- substr(str_split_1(trList[i], "-")[3], 4, 7)
+  datafile <- read_excel(trList[i], skip = 13) |>
+    filter(Metric_Type == 'Unique_Item_Requests')    
+  assign(paste0("eldbr", vendor, reportType, year, '_and_months'), datafile)
+}
+```
+
+
+
+
+# Join the Files Together
+
+```{r}
+# TR
+proQuestTRMonths <- plyr::rbind.fill(`eldbr./ProQuestTR2022_and_months`, `eldbr./ProQuestTR2023_and_months`, `eldbr./ProQuestTR2024_and_months`)
+```
+
+
+
+
+```{r}
+proQuestTRMonths2 <- proQuestTRMonths |>
+  group_by(Title, Publisher, Publisher_ID, Platform, DOI, Proprietary_ID, ISBN, Print_ISSN, Online_ISSN, URI, Metric_Type) |>
+  summarise(Reporting_Period_Total = sum(Reporting_Period_Total, na.rm = TRUE),
+            `Jan-2022` = sum(`44562`, na.rm = TRUE),
+            `Feb-2022` = sum(`44593`, na.rm = TRUE),
+            `Mar-2022` = sum(`44621`, na.rm = TRUE),
+            `Apr-2022` = sum(`44652`, na.rm = TRUE),
+            `May-2022` = sum(`44682`, na.rm = TRUE),
+            `Jun-2022` = sum(`44713`, na.rm = TRUE),
+            `Jul-2022` = sum(`44743`, na.rm = TRUE),
+            `Aug-2022` = sum(`44774`, na.rm = TRUE),
+            `Sep-2022` = sum(`44805`, na.rm = TRUE),
+            `Oct-2022` = sum(`44835`, na.rm = TRUE),
+            `Nov-2022` = sum(`44866`, na.rm = TRUE),
+            `Dec-2022` = sum(`44896`, na.rm = TRUE),
+            `Jan-2023` = sum(`44927`, na.rm = TRUE),
+            `Feb-2023` = sum(`44958`, na.rm = TRUE),
+            `Mar-2023` = sum(`44986`, na.rm = TRUE),
+            `Apr-2023` = sum(`45017`, na.rm = TRUE),
+            `May-2023` = sum(`45047`, na.rm = TRUE),
+            `Jun-2023` = sum(`45078`, na.rm = TRUE),
+            `Jul-2023` = sum(`45108`, na.rm = TRUE),
+            `Aug-2023` = sum(`45139`, na.rm = TRUE),
+            `Sep-2023` = sum(`45170`, na.rm = TRUE),
+            `Oct-2023` = sum(`45200`, na.rm = TRUE),
+            `Nov-2023` = sum(`45231`, na.rm = TRUE),
+            `Dec-2023` = sum(`45261`, na.rm = TRUE),
+            `Jan-2024` = sum(`Jan-24`, na.rm = TRUE),
+            `Feb-2024` = sum(`Feb-24`, na.rm = TRUE),
+            `Mar-2024` = sum(`Mar-24`, na.rm = TRUE),
+            `Apr-2024` = sum(`Apr-24`, na.rm = TRUE),
+            `May-2024` = sum(`May-24`, na.rm = TRUE),
+            `Jun-2024` = sum(`Jun-24`, na.rm = TRUE),
+            `Jul-2024` = sum(`Jul-24`, na.rm = TRUE),
+            `Aug-2024` = sum(`Aug-24`, na.rm = TRUE),
+            `Sep-2024` = sum(`Sep-24`, na.rm = TRUE),
+            `Oct-2024` = sum(`Oct-24`, na.rm = TRUE),
+            `Nov-2024` = sum(`Nov-24`, na.rm = TRUE),
+            `Dec-2024` = sum(`Dec-24`, na.rm = TRUE),
+            `Total_Usage` = sum(Reporting_Period_Total, na.rm = TRUE)
+            ) |>
+  ungroup()
+
+
+
+proQuestTRMonths2
+```
+
+
+
+```{r}
+TRMonths <- rbind(`eldbr./CambridgeTRand_months`, `eldbr./EBSCOTRand_months`, `eldbr./JSTORTRand_months`, `eldbr./OUPTRand_months`, `eldbr./ProQuestEBooksTRand_months`, proQuestTRMonths2)
+```
+
+
+
+
+
+# Get Titles with Usage
+
+
+```{r}
+withUse <- filledGaps |>
+  filter(Total_Usage > 0)
+
+
+withUse
+```
+
+
+# Join the Monthly Usage to the Final Usage
+
+```{r}
+withMonths <- inner_join(withUse, TRMonths, by = 'Title') |>
+  distinct()
+
+withMonths
+```
+
+
+
+
+# Filter Out Duplicates by ISBN
+
+
+
+```{r}
+filteredMonths <- withMonths |>
+  filter(!ISBN.y %in% c('978-0-12-382188-1', '978-1-56368-043-4')) |>
+  filter(Platform != 'Oxford Academic' | ISBN.y != '978-0-19-960868-3')
+
+
+filteredMonths
+```
+
+
+
+
+# Gather Usage Based on Portfolio Date
+
+
+```{r}
+fromBuyUsage <- filteredMonths |>
+  mutate(usageSincePurchase = 
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-02-01'), 0, `Jan-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-03-01'), 0, `Feb-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-04-01'), 0, `Mar-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-04-01'), 0, `Apr-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-06-01'), 0, `May-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-07-01'), 0, `Jun-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-08-01'), 0, `Jul-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-09-01'), 0, `Aug-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-10-01'), 0, `Sep-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-11-01'), 0, `Oct-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2022-12-01'), 0, `Nov-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-01-01'), 0, `Dec-2022`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-02-01'), 0, `Jan-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-03-01'), 0, `Feb-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-04-01'), 0, `Mar-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-05-01'), 0, `Apr-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-06-01'), 0, `May-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-07-01'), 0, `Jun-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-08-01'), 0, `Jul-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-09-01'), 0, `Aug-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-10-01'), 0, `Sep-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-11-01'), 0, `Oct-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2023-12-01'), 0, `Nov-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-01-01'), 0, `Dec-2023`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-02-01'), 0, `Jan-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-03-01'), 0, `Feb-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-04-01'), 0, `Mar-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-05-01'), 0, `Apr-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-06-01'), 0, `May-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-07-01'), 0, `Jun-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-08-01'), 0, `Jul-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-09-01'), 0, `Aug-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-10-01'), 0, `Sep-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-11-01'), 0, `Oct-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2024-12-01'), 0, `Nov-2024`) +
+      ifelse(`Portfolio Creation Date` > as.POSIXct('2025-01-01'), 0, `Dec-2024`)
+  ) |>
+  mutate(usageFirstSix = case_when(
+        between(`Portfolio Creation Date`, as.POSIXct('2022-01-01'), as.POSIXct('2022-02-01')) ~ `Jan-2022` + `Feb-2022` + `Mar-2022` + `Apr-2022` + `May-2022` + `Jun-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-02-01'), as.POSIXct('2022-03-01')) ~ `Feb-2022` + `Mar-2022` + `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-03-01'), as.POSIXct('2022-04-01')) ~ `Mar-2022` + `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-04-01'), as.POSIXct('2022-05-01')) ~ `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-05-01'), as.POSIXct('2022-06-01')) ~ `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-06-01'), as.POSIXct('2022-07-01')) ~ `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-07-01'), as.POSIXct('2022-08-01')) ~ `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-08-01'), as.POSIXct('2022-09-01')) ~ `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-09-01'), as.POSIXct('2022-10-01')) ~ `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-10-01'), as.POSIXct('2022-11-01')) ~ `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-11-01'), as.POSIXct('2022-12-01')) ~ `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-12-01'), as.POSIXct('2023-01-01')) ~ `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-01-01'), as.POSIXct('2023-02-01')) ~ `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-02-01'), as.POSIXct('2023-03-01')) ~ `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-03-01'), as.POSIXct('2023-04-01')) ~ `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-04-01'), as.POSIXct('2023-05-01')) ~ `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-05-01'), as.POSIXct('2023-06-01')) ~ `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-06-01'), as.POSIXct('2023-07-01')) ~ `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-07-01'), as.POSIXct('2023-08-01')) ~ `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-08-01'), as.POSIXct('2023-09-01')) ~ `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-09-01'), as.POSIXct('2023-10-01')) ~ `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-10-01'), as.POSIXct('2023-11-01')) ~ `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-11-01'), as.POSIXct('2023-12-01')) ~ `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-12-01'), as.POSIXct('2024-01-01')) ~ `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2024-01-01'), as.POSIXct('2024-02-01')) ~ `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2024-02-01'), as.POSIXct('2024-03-01')) ~ `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2024-03-01'), as.POSIXct('2024-04-01')) ~ `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2024-04-01'), as.POSIXct('2024-05-01')) ~ `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2024-05-01'), as.POSIXct('2024-06-01')) ~ `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024` + `Oct-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2024-06-01'), as.POSIXct('2024-07-01')) ~ `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024` + `Oct-2024` + `Nov-2024`,
+    .default = `Jul-2024` + `Aug-2024` + `Sep-2024` + `Oct-2024` + `Nov-2024` + `Dec-2024`
+  )
+    ) |>
+  mutate(usageFirstYear = case_when(
+        between(`Portfolio Creation Date`, as.POSIXct('2022-01-01'), as.POSIXct('2022-02-01')) ~ 
+          `Jan-2022` + `Feb-2022` + `Mar-2022` + `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-02-01'), as.POSIXct('2022-03-01')) ~ 
+          `Feb-2022` + `Mar-2022` + `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-03-01'), as.POSIXct('2022-04-01')) ~ 
+          `Mar-2022` + `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-04-01'), as.POSIXct('2022-05-01')) ~ 
+          `Apr-2022` + `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-05-01'), as.POSIXct('2022-06-01')) ~ 
+          `May-2022` + `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-06-01'), as.POSIXct('2022-07-01')) ~ 
+          `Jun-2022` + `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-07-01'), as.POSIXct('2022-08-01')) ~ 
+          `Jul-2022` + `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-08-01'), as.POSIXct('2022-09-01')) ~ 
+          `Aug-2022` + `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-09-01'), as.POSIXct('2022-10-01')) ~ 
+          `Sep-2022` + `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-10-01'), as.POSIXct('2022-11-01')) ~ 
+          `Oct-2022` + `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-11-01'), as.POSIXct('2022-12-01')) ~ 
+          `Nov-2022` + `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2022-12-01'), as.POSIXct('2023-01-01')) ~ 
+          `Dec-2022` + `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-01-01'), as.POSIXct('2023-02-01')) ~ 
+          `Jan-2023` + `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-02-01'), as.POSIXct('2023-03-01')) ~ 
+          `Feb-2023` + `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-03-01'), as.POSIXct('2023-04-01')) ~ 
+          `Mar-2023` + `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-04-01'), as.POSIXct('2023-05-01')) ~ 
+          `Apr-2023` + `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-05-01'), as.POSIXct('2023-06-01')) ~ 
+          `May-2023` + `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-06-01'), as.POSIXct('2023-07-01')) ~ 
+          `Jun-2023` + `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-07-01'), as.POSIXct('2023-08-01')) ~ 
+          `Jul-2023` + `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-08-01'), as.POSIXct('2023-09-01')) ~ 
+          `Aug-2023` + `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-09-01'), as.POSIXct('2023-10-01')) ~ 
+          `Sep-2023` + `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-10-01'), as.POSIXct('2023-11-01')) ~ 
+          `Oct-2023` + `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-11-01'), as.POSIXct('2023-12-01')) ~ 
+          `Nov-2023` + `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024` + `Oct-2024`,
+        between(`Portfolio Creation Date`, as.POSIXct('2023-12-01'), as.POSIXct('2024-01-01')) ~ 
+          `Dec-2023` + `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024` + `Oct-2024` + `Nov-2024`,
+    .default = `Jan-2024` + `Feb-2024` + `Mar-2024` + `Apr-2024` + `May-2024` + `Jun-2024` + `Jul-2024` + `Aug-2024` + `Sep-2024` + `Oct-2024` + `Nov-2024` + `Dec-2024`
+  )
+    ) |>
+  select(Title, ISBN.x, `MMS ID`, `Portfolio Creation Date`, `Vendor Name`, usageFirstSix, usageFirstYear, usageSincePurchase, Cost)
+
+
+colnames(fromBuyUsage) <- c('Title', 'ISBN', 'MMS ID', 'Portfolio Creation Date', 'Vendor Name', 'First_Six_Usage', 'First_Year_Usage', 'Total_Usage', 'Cost')
+
+
+fromBuyUsage
+```
+
+
+
+# Combine the No Usage and Some Usage Tables
+
+
+
+```{r}
+lackUseNew <- lackUse |>
+  mutate(First_Six_Usage = 0,
+         First_Year_Usage = 0) |>
+  select(Title, ISBN, `MMS ID`, `Portfolio Creation Date`, `Vendor Name`, First_Six_Usage, First_Year_Usage, Total_Usage, Cost)
+
+
+lackUseNew
+```
+
+
+
+```{r}
+finalTable <- rbind(fromBuyUsage, lackUseNew)
+
+finalTable
+```
+
+
+
+
+# Calculate Cost Per Use
+
+
+
+```{r}
+costUse <- finalTable |>
+  mutate(numMonths = ifelse(`Portfolio Creation Date` < as.POSIXct('2022-01-01'), 36,
+                            interval(`Portfolio Creation Date`, Sys.Date()) %/% months(1))) |>
+  mutate(usagePerYear = (12 * Total_Usage) / numMonths) |>
+  mutate(`Cost/Use` = round(ifelse(usagePerYear == 0, NA_real_, Cost / usagePerYear), 2),
+         `Total Cost` = round(Cost, 2),
+         `Usage/Yr` = round(usagePerYear, 1),
+         `Total Usage` = Total_Usage) |>
+  mutate(costUseBucket = case_when(
+    `Total Usage` == 0 ~ 'No Loans',
+    `Cost/Use` < 20 ~ 'Under $20',
+    `Cost/Use` >= 20 ~ 'Over $20',
+    .default = NA
+  )) |>
+  select(Title, ISBN, `MMS ID`, `Portfolio Creation Date`, First_Six_Usage, First_Year_Usage, `Total Usage`, `Total Cost`, `Usage/Yr`, `Cost/Use`, costUseBucket)
+
+
+costUse
+```
+
+
+
+
+# Export the Files
+
+
+```{r}
+write.csv(costUse, 'Cost Per Use of ELDBR E-Resource Replacements.csv', row.names = FALSE)
+```
+
+
+
